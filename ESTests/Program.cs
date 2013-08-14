@@ -14,7 +14,7 @@ namespace ESTests
         static void Main(string[] args)
         {
             string readLine;
-            while((readLine = Console.ReadLine()) != "")
+            while ((readLine = Console.ReadLine()) != "")
             {
                 if (Commands.ContainsKey(readLine.ToLower()))
                 {
@@ -34,7 +34,8 @@ namespace ESTests
             {"h", PrintHelp},
             {"i", IndexData},
             {"ci", CreateIndex},
-            {"q", Query}
+            {"q", Query},
+            {"d", ETTester.DeleteIndex}
         };
 
         private static void CreateIndex()
@@ -76,6 +77,8 @@ namespace ESTests
             Console.WriteLine("h: print this");
             Console.WriteLine("i: index data");
             Console.WriteLine("q: query data");
+            Console.WriteLine("ci: create index and mapping");
+            Console.WriteLine("d: delete index");
         }
     }
 
@@ -102,7 +105,7 @@ namespace ESTests
         {
             var aktors = CreateAktors().ToList();
             _client.IndexMany(aktors);
-//            aktors.ForEach((a) => _client.Index(a));
+            //            aktors.ForEach((a) => _client.Index(a));
         }
 
         private IEnumerable<Aktor> CreateAktors()
@@ -164,7 +167,7 @@ namespace ESTests
                     AktorType = AktorType.Person,
                     Id = "p_" + i,
                     LookupId = i,
-                    Konsesjoner = CreateKonsesjoner(_random.Next(3,7), 6).ToArray(),
+                    Konsesjoner = CreateKonsesjoner(_random.Next(3, 7), 6).ToArray(),
                     Name = navn[i],
                     Aktiv = _random.Next(1, 10) > 7
                 };
@@ -198,20 +201,53 @@ namespace ESTests
         public IQueryResponse<Aktor> Search(string searchString, string filter)
         {
             var filterObject = CreateFilter(filter);
-            Func<SearchDescriptor<Aktor>, SearchDescriptor<Aktor>> searchDescriptor = sd => sd.QueryString(searchString);
-            if (filterObject != null)
-            {
-                searchDescriptor = AddFilters(searchDescriptor, filterObject);
-            }
-            Func<SearchDescriptor<Aktor>, SearchDescriptor<Aktor>> highlightedDescriptor = sd =>
-            {
-                return searchDescriptor(sd).Highlight(
-                    h =>
-                        h.PreTags("<b>")
-                            .PostTags("</b>")
-                            .OnFields(f => f.OnField(e => e.Name).PreTags("<em>").PostTags("</em>")));
-            };
-            var result = _client.Search(highlightedDescriptor);
+            Func<SearchDescriptor<Aktor>, SearchDescriptor<Aktor>> searchDescriptor = sd =>
+                sd.Query(bq =>
+                    bq.Filtered(fq =>
+                        fq.Query(q => q.QueryString(qs => qs.Query(searchString)))
+                            .Filter(f =>
+                                f.And(f1 => f1.Term(fa => fa.LookupId, "9"),
+                                    f2 => f2.Nested((n) =>
+                                    n
+                                        .Path(p => p.Konsesjoner[0])
+                                        .Query(q => q.Filtered(f1 =>
+                                            f1
+                                                .Query(qq => qq.MatchAll())
+                                                .Filter(ff =>
+                                                    ff.And(fff =>
+                                                        fff.Term(fa => fa.Konsesjoner[0].Beskrivelse, filterObject.Value))
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    );
+                    //.QueryString(searchString)
+                    //.Filter(f =>
+                    //    f.Nested((n) =>
+                    //        n.Path(p => p.Konsesjoner[0])
+                    //            .Query(q => q.Filtered(f1 =>
+                    //                f1.Query(qq => qq.MatchAll())
+                    //                    .Filter(
+                    //                        ff =>
+                    //                            ff.And(
+                    //                                fff =>
+                    //                                    fff.Term(fa => fa.Konsesjoner[0].Beskrivelse, filterObject.Value)))))));
+            //if (filterObject != null)
+            //{
+            //    searchDescriptor = AddFilters(searchDescriptor, filterObject);
+            //}
+            //Func<SearchDescriptor<Aktor>, SearchDescriptor<Aktor>> highlightedDescriptor = sd =>
+            //{
+            //    return searchDescriptor(sd).Highlight(
+            //        h =>
+            //            h.PreTags("<b>")
+            //                .PostTags("</b>")
+            //                .OnFields(f => f.OnField(e => e.Name).PreTags("<em>").PostTags("</em>")));
+            //};
+            var result = _client.Search(searchDescriptor);
             //var result =
             //    _client.Search<Aktor>(
             //        s =>
@@ -229,13 +265,13 @@ namespace ESTests
             Func<SearchDescriptor<Aktor>, SearchDescriptor<Aktor>> filteredDescriptor = sd =>
             {
                 return searchDescriptor(sd).Filter(f =>
-                    f.Nested((n) => 
+                    f.Nested((n) =>
                         n.Path(p => p.Konsesjoner[0])
                         .Query(q => q.Filtered(f1 =>
                             f1.Query(qq => qq.MatchAll()).Filter(ff => ff.And(fff => fff.Term(fa => fa.Konsesjoner[0].Beskrivelse, filterObject.Value)))))));
-                            
-                        //.Query(dq => dq.Fil)
-                        //    q.Term(f1 => f1.Konsesjoner[0].Beskrivelse, "" + filterObject.Value))));
+
+                //.Query(dq => dq.Fil)
+                //    q.Term(f1 => f1.Konsesjoner[0].Beskrivelse, "" + filterObject.Value))));
             };
             return filteredDescriptor;
         }
@@ -245,6 +281,11 @@ namespace ESTests
             if (string.IsNullOrEmpty(filter))
                 return null;
             return new FilterObj(filter);
+        }
+
+        public void DeleteIndex()
+        {
+            _client.DeleteIndex<Aktor>();
         }
     }
 
@@ -296,7 +337,7 @@ namespace ESTests
 
     public class Konsesjon
     {
-        [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
+//        [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
         public string Beskrivelse { get; set; }
         [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
         public int Type { get; set; }
