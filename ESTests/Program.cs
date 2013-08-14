@@ -57,13 +57,31 @@ namespace ESTests
             Console.WriteLine("Hightlights:");
             foreach (var highlight in result.Highlights)
             {
-                Console.WriteLine(highlight.Key + ": " +
-                                  string.Join(", ",
-                                      highlight.Value.Select(
-                                          y =>
-                                              y.Key + ", " + y.Value.DocumentId + ", " + y.Value.Field + ", " +
-                                              string.Join(", ", y.Value.Highlights))));
+                WriteHighlight(highlight);
             }
+            foreach (var facet in result.Facets)
+            {
+                Console.WriteLine("Facets");
+                WriteFacet(facet);
+            }
+        }
+
+        private static void WriteFacet(KeyValuePair<string, Facet> facet)
+        {
+            var termsFacet = facet.Value as TermFacet;
+            Console.WriteLine(facet.Key + ": " + 
+                              string.Join(", ", termsFacet.Items.Select(
+                                      y => y.Count + ", " + y.Term)));
+        }
+
+        private static void WriteHighlight(KeyValuePair<string, HighlightFieldDictionary> highlight)
+        {
+            Console.WriteLine(highlight.Key + ": " +
+                              string.Join(", ",
+                                  highlight.Value.Select(
+                                      y =>
+                                          y.Key + ", " + y.Value.DocumentId + ", " + y.Value.Field + ", " +
+                                          string.Join(", ", y.Value.Highlights))));
         }
 
         private static void IndexData()
@@ -208,22 +226,25 @@ namespace ESTests
                             .Filter(f =>
                                 f.And(f1 => f1.Term(fa => fa.LookupId, "9"),
                                     f2 => f2.Nested((n) =>
-                                    n
-                                        .Path(p => p.Konsesjoner[0])
-                                        .Query(q => q.Filtered(f1 =>
-                                            f1
-                                                .Query(qq => qq.MatchAll())
-                                                .Filter(ff =>
-                                                    ff.And(fff =>
-                                                        fff.Term(fa => fa.Konsesjoner[0].Beskrivelse, filterObject.Value))
+                                        n
+                                            .Path(p => p.Konsesjoner[0])
+                                            .Query(q => q.Filtered(f1 =>
+                                                f1
+                                                    .Query(qq => qq.MatchAll())
+                                                    .Filter(ff =>
+                                                        ff.And(fff =>
+                                                            fff.Term(fa => fa.Konsesjoner[0].Beskrivelse,
+                                                                filterObject.Value))
+                                                    )
                                                 )
                                             )
                                         )
                                     )
-                                )
                             )
                         )
-                    );
+                    ).FacetTerm(t => t
+                        .OnField(f => f.Aktiv).Size(10))
+                    .FacetTerm(f => f.Nested(a => a.Konsesjoner).OnField(f2 => f2.Konsesjoner[0].Beskrivelse), "konsesjoner");
                     //.QueryString(searchString)
                     //.Filter(f =>
                     //    f.Nested((n) =>
@@ -337,7 +358,7 @@ namespace ESTests
 
     public class Konsesjon
     {
-//        [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
+        [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
         public string Beskrivelse { get; set; }
         [ElasticProperty(Index = FieldIndexOption.not_analyzed)]
         public int Type { get; set; }
